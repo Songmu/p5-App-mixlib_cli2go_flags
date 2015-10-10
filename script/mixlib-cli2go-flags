@@ -89,6 +89,7 @@ package # hide from PAUSE
         my $result = sprintf "%s %s `", camelize($self->name), $self->type;
 
         for my $field (@fields) {
+            next if $self->type eq 'bool' && $field eq 'default';
             my $v = $self->$field;
             if (defined $v) {
                 my $field_name = $field =~ s/_/-/gr;
