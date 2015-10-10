@@ -1,0 +1,102 @@
+#!/usr/bin/env perl
+use 5.016;
+use warnings;
+use utf8;
+use autodie;
+use Path::Tiny;
+
+my $file = shift or die 'no file specified';
+my $contents = path($file)->slurp_utf8;
+
+my $parse_start;
+my $current_option;
+my @options;
+
+my $option_reg = qr/^\s+option :(\w+),/;
+my $kv_reg     = qr/^\s+(\w+): (.*),?/;
+
+for my $line (split /\r?\n/, $contents) {
+    next unless $line;
+    if (!$parse_start && $line !~ $option_reg) {
+        next;
+    }
+
+    if ($line =~ $option_reg) {
+        $parse_start = 1;
+        push @options, $current_option if $current_option;
+        $current_option = opt->new(name => $1, type => 'string');
+        next;
+    }
+
+    if ($current_option && (my ($key, $value) = $line =~ $kv_reg)) {
+        $value = trim_quote($value);
+        $key eq 'description' && do {
+            $current_option->description($value);
+        };
+        $key =~ /^(?:short|long)$/ && do {
+           $value =~ s/^-+//;
+            ($value, my $value_name) = split / /, $value;
+            $current_option->$key($value);
+            $current_option->value_name($value_name) if defined $value_name;
+        };
+        $key eq 'boolean' && do {
+            $current_option->type('bool') if $value eq 'true';
+        };
+        $key eq 'proc' && do {
+            if ($value =~ /&:to_i/) {
+                $current_option->type('int64');
+            } elsif ($value =~ /&:to_f/) {
+                $current_option->type('float64');
+            }
+        };
+        $key eq 'required' and $value eq 'true' and do {
+            $current_option->required($value);
+        };
+        $key eq 'default' and do {
+            $current_option->default($value);
+        };
+        next;
+    }
+
+    push @options, $current_option if $current_option;
+    last;
+}
+
+say 'var opts struct {';
+say "\t" . $_->to_string for @options;
+say '}';
+
+sub trim_quote {
+    my $v = shift;
+    $v =~ s/,$//;
+    $v =~ s/^['"]+//;
+    $v =~ s/['"]+$//;
+    return $v;
+}
+
+package # hide from PAUSE
+  opt {
+    my @fields;
+    BEGIN { @fields = qw/short long required value_name default description/ }
+    use String::CamelCase qw/camelize/;
+    use Class::Accessor::Lite (
+        new => 1,
+        rw => [qw/name type/, @fields],
+    );
+
+    sub to_string {
+        my $self = shift;
+        my $result = sprintf "%s %s `", camelize($self->name), $self->type;
+
+        for my $field (@fields) {
+            my $v = $self->$field;
+            if (defined $v) {
+                my $field_name = $field =~ s/_/-/gr;
+                $result .= sprintf '%s:"%s" ', $field_name, $v;
+            }
+        }
+        $result =~ s/\s+$//;
+        $result . "`"
+    }
+}
+

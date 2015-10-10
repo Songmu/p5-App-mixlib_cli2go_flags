@@ -1,0 +1,6 @@
+name = "App-mixlib_cli2go_flags"
+# badges = ["travis"]
+authority="cpan:SONGMU"
+
+module_maker="ModuleBuildTiny"
+
